@@ -1,7 +1,9 @@
-﻿f_GitHub_Updater(VersionNumberDefSubScripts:="VNI=",VersionNumberDefMainScript:="VN=",vNumberOfBackups:=0,IniObjFlag:=-1)
+f_UpdateRoutine(VersionNumberDefStringIncludeScripts:="VN=",VersionNumberDefMainScript:="VNI=",vNumberOfBackups:=0,IniObjFlag:=-1)
 {
-	
-	; facilitates all subfunctions for 
+	; facilitates all subfunctions for pulling updates from a public github repo.
+	; before calling this function, make sure you have the following 
+
+
 	; m(GitPageURLComponents,"`n",LocalValues)
 	; add input verification: 
 	; does gitpage connect successfully, 
@@ -18,13 +20,13 @@
 		;error,  but in theory possible.
 	gui, destroy
 	vFileCountToUpdate:=0
-	ReturnPackage:=f_CheckForUpdates(GitPageURLComponents,LocalValues,VersionNumberDefMainScript)
+	ReturnPackage:=f_CheckForUpdates(GitPageURLComponents,LocalValues,VersionNumberDefMainScript,VersionNumberDefStringIncludeScripts)
 	vFileCountToUpdate:=ReturnPackage[2].Count()
 	if ReturnPackage[1]!=0
 		vFileCountToUpdate++
 		;tooltip, updating 	; insert f_PerformUpdate here
 	if vFileCountToUpdate!=0 			; MainFile's VN doesn't match → update (insert assume-all function? Not necessary, as each file with unique name is also loggged by vn.)
-		if f_Confirm_Question_Updater("Do you want to update?`nNew Version is "GitPageURLComponents[1],LocalValues[1],LocalValues[2])
+		if f_Confirm_Question_Updater("Do you want to update?`nNew Version is available",LocalValues[1],LocalValues[2])
 			f_PerformUpdate(ReturnPackage,GitPageURLComponents,LocalValues,IniObjFlag,vNumberOfBackups)
 	else if (lIsDifferent=-1) 	; vn-identifier string not found
 		if !vsdb
@@ -37,7 +39,7 @@
 		return
 }
 
-f_CheckForUpdates(GitPageURLComponents,LocalValues,VersionNumberDefSubScripts,VersionNumberDefMainScript:="VN=")
+f_CheckForUpdates(GitPageURLComponents,LocalValues,VersionNumberDefStringIncludeScripts,VersionNumberDefMainScript:="VN=")
 {
 	; returns:
 	;  0 - match
@@ -81,6 +83,7 @@ f_CheckForUpdates(GitPageURLComponents,LocalValues,VersionNumberDefSubScripts,Ve
 		}
 	Else
 		VersionDifference_MainScript:=-1
+	;MsgBox % vVNOnline "`n" LocalValues[2] "`nDifference:" VersionDifference_MainScript
 	
 	
 	;________________________________________________
@@ -94,15 +97,20 @@ f_CheckForUpdates(GitPageURLComponents,LocalValues,VersionNumberDefSubScripts,Ve
 	
 	OfflineVNs:=[]
 	OfflineVNs["local"]:=[]
-	OfflineVNs["local"]:=f_PullLocalVersionsFromIncludeFiles("GeneralHealthBots\includes")
+	OfflineVNs["local"]:=f_PullLocalVersionsFromIncludeFiles("GeneralHealthBots\includes",VersionNumberDefStringIncludeScripts)
 	OfflineVNs["local"][A_ScriptName]:=LocalValues[2]	; this throws an error in the testfile, but won't do so in the actual file. 
 	OfflineVNs["localend"]:=[]
-	f_WriteINI(OfflineVNs,"StayHydratedBot settingsGUI_16.05.2021")		; figure out how to write this array to the ini-file
-	;m(OfflineVNs)
-	SplitPath, A_ScriptName,,,, ScriptName
-	FileNameIniRead:=ScriptName . ".ini"
-	INiObj:=f_ReadINI(FileNameIniRead) ;; replace this with FileNameIniRead later once this is written out fully. 
+	
+	m(OfflineVNs)
+	FolderOfVersioningFile:="FileVersions"
+	SplitPath, A_ScriptName, A_ScriptNameNoExt
+	f_WriteINI_FileVersions(OfflineVNs,"FileVersions " A_ScriptNameNoExt ,FolderOfVersioningFile)		; figure out how to write this array to the ini-file
+	INiObj:=f_ReadINI_FileVersions("FileVersions " A_ScriptNameNoExt,FolderOfVersioningFile) ;; replace this with FileNameIniRead later once this is written out fully. 
 	; now we have the VN's of all subscripts locally, and they are always updated to the ini-file itself. 
+	
+	; now we have: Function pulls vn's from local files, with OfflineVNs being an array of filename - vn created at start of mainscript
+	; 
+	
 	;________________________________________________
 	;________________________________________________
 	; Get online include version Numbers (VNs) from the online ini.file ← this is important to go over the ini-file as we need to make 
@@ -201,7 +209,8 @@ f_PerformUpdate(ReturnPackage,GitPageURLComponents,LocalValues,IniObjFlag:=1,vNu
 		FilesReadFromGitPage[k]:="-1: File Not read from gitpage"
 	GitPageURLComponents[5]:=LocalValues[3]
 	FileTexts:=f_DownloadFilesFromGitPage(FilesReadFromGitPage,GitPageURLComponents,ReturnPackage)
-	ReturnPackage[2].Push(A_ScriptName)
+	
+	;ReturnPackage[2].Push(A_ScriptName)
 	f_WriteFilesFromArray(ReturnPackage[2],FileTexts,GitPageURLComponents)
 	f_NotifyUserOfUpdates()
 	return ; VersionDifference_MainScript
@@ -210,37 +219,83 @@ f_PerformUpdate(ReturnPackage,GitPageURLComponents,LocalValues,IniObjFlag:=1,vNu
 f_NotifyUserOfUpdates()
 {
 	m("remember to create the notifyuserofupdates_fn")
-		;Date: 22 Mai 2021 13:34:03: todo: notify what has changed, where the old files
-		;are, etc etc  1. Old files are dropped to 
+	;Date: 22 Mai 2021 13:34:03: todo: notify what has changed, where the old files
+	;are, etc etc  1. Old files are dropped to 
 }
 
 f_WriteFilesFromArray(FileNames,FileTexts,GitPageURLComponents)
 {
 	global vsdb
-	m(FileNames)
-	m(GitPageURLComponents[5])
-	m(FileTexts)
-	FilePathsLocal:=f_AssembleLocalFilePaths(FileNames,GitPageURLComponents[5])
+	; m(FileNames)
+	; m(GitPageURLComponents[5])
+	; m(FileTexts)
+	FilePathsLocal:=f_AssembleLocalFilePaths(FileNames,GitPageURLComponents[5]) ; this function assembles the local file path for the main script onto the filepath of m.ahk
+	ErrorMsg:=[]
+	Files:=[FileNames,FileTexts,FilePathsLocal,ErrorMsg]
 	for k,v in FilePathsLocal
 	{
 		if FileTexts[k]!="404: Not Found"
 		{
 			if  vsdb ;!
 			{
-				CurrFile:=FileOpen(v,"rw") ; backup is handled already, so I don't have to worry about it. Or I do a better backup, and do it here just for the files that are updated. 101
+				If !FileExist(v)
+					ErrorMsg.push(0)
+				Else
+					ErrorMsg.push(1)
+				CurrFile:=FileOpen(v,"w") 	; this is a beatiful one-liner that wipes the entire file clean. This is necessary because we need to make sure our replacement isn't destroyed by left-over text from the file before.
+				CurrFile:=FileOpen(v,"rw") 	; actually open the file to write the update to it.
 				CurrFile.Write(FileTexts[k])
 				CurrFile.Close()
-
 			}
-						
+			;Files.push(FileExist)
 		}
 		else
-			m("File not found online: Reference exists, file itself does not")
+		{
+			ErrorMsg.push(-1)
+			;m("File not found online: Reference exists, file itself does not")
+		}
 	}
 	; and now we only have to write the files to the files, duh.
 	if !vsdb
 		m("f_writeFilesFromArray:`nremember to finish thee notify-msgs")
+		
+		f_FinishUp(GitPageURLComponents,Files)
 }
+
+f_FinishUp(GitpageURLComponents,Files)
+{
+	EMString:=f_AssembleErrorMessages(GitPageURLComponents,Files)
+	m(EMString)
+}
+
+f_AssembleErrorMessages(GitPageURLComponents,Files)
+{	; function assembles the various error-messages into one unified 
+	NotifyArr:=[]
+	LongStr:="`Error Messages:`n"
+	for k,v in Files[4]
+		if v=-1
+		{
+			str:= "`n" Files[1][k] ": A reference exists, but the file itself is not found at the repo. Please create an issue to notify the creator of a missing file or a superfluous reference"
+			Longstr.=str
+
+		}
+	LongStr.="`n`nCreated Files:`n"
+	for k,v in Files[4]
+		if v=0
+		{
+			str:= "`n"""Files[1][k] """ was created"
+			Longstr.=str
+		}
+	LongStr.="`n`nUpdated Files:`n"
+	for k,v in Files[4]
+		if v=1
+		{
+			str:= "`n"""Files[1][k] """ was updated"
+			Longstr.=str
+		}
+	return Longstr
+}
+
 
 f_AssembleLocalFilePaths(FileNames,FileDirIncludes)
 {
@@ -252,13 +307,12 @@ f_AssembleLocalFilePaths(FileNames,FileDirIncludes)
 		FilePathsLocal[A_Index]:=CurrFilePath
 		Ind:=A_Index
 	}
-	FilePathsLocal[Ind]:=A_ScriptFullPath
 	return FilePathsLocal
 }
 
 f_DownloadFilesFromGitPage(FilesReadFromGitPage,GitPageURLComponents,ReturnPackage)
 {
-	DownloadURLs:=f_AssembleDownloadURLs(FilesReadFromGitPage,GitPageURLComponents,ReturnPackage)
+	DownloadURLs:=f_AssembleDownloadURLs(GitPageURLComponents,ReturnPackage)
 
 	whr := ComObjCreate("WinHttp.WinHttpRequest.5.1")
 	for k,v in DownloadURLs
@@ -268,33 +322,28 @@ f_DownloadFilesFromGitPage(FilesReadFromGitPage,GitPageURLComponents,ReturnPacka
 		whr.WaitForResponse()
 		FileNameArr:=StrSplit(DownloadURLs[A_Index],"/")
 		ArrayVal:=whr.ResponseText ;"||" FileNameArr[FileNameArr.MaxIndex()]
-			FilesReadFromGitPage[A_Index]:=ArrayVal
-		;Clipboard:=ArrayVal
+		FilesReadFromGitPage[A_Index]:=ArrayVal
 	}
 	
 	return FilesReadFromGitPage
 }
 
-f_AssembleDownloadURLs(FilesReadFromGitPage,GitPageURLComponents,ReturnPackage)
+f_AssembleDownloadURLs(GitPageURLComponents,ReturnPackage)
 {
 	DownloadURLs:=[]
 	for k,v in ReturnPackage[2]
 		DownloadURLs[A_Index]:="https://raw.githubusercontent.com/" GitPageURLComponents[1] "/" GitPageURLComponents[2] "/main/" GitPageURLComponents[5] ReturnPackage[2][A_Index]
-	MaxIndPlusOne:=DownloadURLs.MaxIndex()+1
-	DownloadURLs[MaxIndPlusOne]:="https://raw.githubusercontent.com/" GitPageURLComponents[1] "/" GitPageURLComponents[2] "/main/" GitPageURLComponents[3]""		; figure out if the %20 is valid or f_InformOfNextSteps(
+	if ReturnPackage[1]
+		DownloadURLs.push("https://raw.githubusercontent.com/" GitPageURLComponents[1] "/" GitPageURLComponents[2] "/main/" GitPageURLComponents[3]"")		; figure out if the %20 is valid or f_InformOfNextSteps(
  
 	return DownloadURLs
 }
 
 f_PullOnlineVersionsFromIniFile(GitPageURLComponents)
 {
-	; searches up the ini-file online and extracts the inserted version numbers for all scripts.
-	; as we cannot know the names of new files to find the corresponding url by default, we need
-	; a central place containing all ahk-files' names in the repo. This function does that. 
-	m(GitpageURLComponents)
-	whr := ComObjCreate("WinHttp.WinHttpRequest.5.1")
+   	whr := ComObjCreate("WinHttp.WinHttpRequest.5.1")
 	url:="https://raw.githubusercontent.com/" GitPageURLComponents[1] "/" GitPageURLComponents[2] "/main/" GitPageURLComponents[4]""
-	whr.Open("GET","https://raw.githubusercontent.com/" GitPageURLComponents[1] "/" GitPageURLComponents[2] "/main/" GitPageURLComponents[4]"", true)
+	whr.Open("GET",url, true)
 	whr.Send()
 	; Using 'true' above and the call below allows the script to remain responsive.
 	whr.WaitForResponse()
@@ -309,10 +358,17 @@ f_PullOnlineVersionsFromIniFile(GitPageURLComponents)
 		{
 			lCatchLines:=2
 			RunCount++
-			vVNOnline:=ReadLine[A_Index]
+			; if (substr(vNumel))
+			LineReadInd:=A_INdex
+			vVNOnline:=ReadLine[LineReadInd]
+			; m(vVNOnline,VN)
+		 	;d:=SubStr(vVNOnline,1,1)
+			;if (d="") 	; this doesn't work, how do I get the fucking string of the thing? ffs. 
+			;	MsgBox, hi
 			vVNOnline:=StrReplace(vVNOnline," ")
 			vVNOnline:=StrReplace(vVNOnline,VersionNumberDefMainScript,"")
 			RegExMatch(vVNOnline, "(?<FileName>[a-z A-Z _\- 0-9]+.ahk)(=)(?<VersionNumberOfFileName>[0-9]+.[0-9]+.[0-9]+.[0-9]+)",v)
+			; how do I get the contents of vFileName and vVersionNUmberOfFileName into an array?
 			OnlineVNs[vFileName]:=vVersionNumberOfFileName
 		}
 		if Instr(ReadLine[A_Index],"[local]") and ((lCatchLines=false) or (lCatchLines=true))
@@ -326,16 +382,20 @@ f_PullOnlineVersionsFromIniFile(GitPageURLComponents)
 	return OnlineVNs
 }
 
-f_PullLocalVersionsFromIncludeFiles(DirectoryOfIncludeFilesRelativeFromMainFile)
+f_PullLocalVersionsFromIncludeFiles(DirectoryOfIncludeFilesRelativeFromMainFile,VersionNumberDefStringIncludeScripts)
 {
  	VNI=1.0.0.1
 	FilesOfProject:=f_ListFiles(A_ScriptDir "\" DirectoryOfIncludeFilesRelativeFromMainFile)
  	versions := []
-	loop files, % A_ScriptDir "\GeneralHealthBots\includes\*.ahk", F ;R
+	Paths:=A_ScriptDir "\" DirectoryOfIncludeFilesRelativeFromMainFile "\*.ahk"
+	VersionNumberDefStringIncludeScripts:=strreplace(VersionNumberDefStringIncludeScripts,"=","")
+	needle:=VersionNumberDefStringIncludeScripts "[^\d]+([\d\.]+)"
+
+	loop files,%Paths% , F ;R
 	{
 		FileRead buffer, % A_LoopFileFullPath
-		RegExMatch(buffer, "VNI[^\d]+([\d\.]+)", ReadLine)
-		versions[A_LoopFileName] := ReadLine1
+		RegExMatch(buffer,needle, ReadLine)
+			versions[A_LoopFileName] := ReadLine1
 	}
 	return versions
 }
@@ -371,7 +431,7 @@ HasVal(haystack, needle)
 }
 
 f_ListFiles(Directory)
-{
+{	
 	files:=[]
 	Loop %Directory%\*.ahk
 	{
@@ -380,17 +440,19 @@ f_ListFiles(Directory)
 	return files
 }
 
-f_WriteINI(ByRef Array2D, INI_File)  ; write 2D-array to INI-file
+f_WriteINI_FileVersions(ByRef Array2D, INI_File,FolderOfVersioningFile)  ; write 2D-array to INI-file
 {
 	m(INI_File)
 	VNI=1.0.0.12
-	if !FileExist("INI-Files") ; check for ini-files directory
+	
+	if !FileExist(FolderOfVersioningFile) ; check for ini-files directory
 	{
-		MsgBox, Creating "INI-Files"-directory at Location`n"%A_ScriptDir%", containing an ini-file named "%INI_File%.ini"
-		FileCreateDir, INI-Files
+		MsgBox, Creating "%FolderOfVersioningFile%"-directory at Location`n"%A_ScriptDir%", containing an ini-file named "%INI_File%.ini"
+		FileCreateDir, %FolderOfVersioningFile%
 	}
 	OrigWorkDir:=A_WorkingDir
-	SetWorkingDir, INI-Files
+	SetWorkingDir, %FolderOfVersioningFile%
+	INI_File:=StrReplace(INI_File,".ahk","")
 	for SectionName, Entry in Array2D 
 	{
 		Pairs := ""
@@ -399,7 +461,7 @@ f_WriteINI(ByRef Array2D, INI_File)  ; write 2D-array to INI-file
 		IniWrite, %Pairs%, %INI_File%.ini, %SectionName%
 	}
 	if A_WorkingDir!=OrigWorkDir
-		SetWorkingDir, %OrigWorkDir%
+		SetWorkingDir, %OrigWorkDir%0
 ;	/* Original File from https://www.autohotkey.com/boards/viewtopic.php?p=256714#p256714
 ;		
 ;	;-------------------------------------------------------------------------------
@@ -415,12 +477,13 @@ f_WriteINI(ByRef Array2D, INI_File)  ; write 2D-array to INI-file
 ;	*/
 }
 
-f_ReadINI(INI_File) ; return 2D-array from INI-file
+f_ReadINI_FileVersions(INI_File,FolderOfVersioningFile) ; return 2D-array from INI-file
 {
 	VNI=1.0.0.10
 	Result := []
 	OrigWorkDir:=A_WorkingDir
-	SetWorkingDir, INI-Files
+	SetWorkingDir, %FolderOfVersioningFile%
+	INI_File:=StrReplace(INI_File,".ahk",".ini")
 	IniRead, SectionNames, %INI_File%
 	for each, Section in StrSplit(SectionNames, "`n") {
 		IniRead, OutputVar_Section, %INI_File%, %Section%
